@@ -10,10 +10,12 @@ from typing import Callable
 from tomlkit._compat import decode
 from tomlkit._utils import RFC_3339_LOOSE
 from tomlkit._utils import _escaped
+from tomlkit._utils import fits_int64
 from tomlkit._utils import parse_rfc3339
 from tomlkit.container import Container
 from tomlkit.exceptions import EmptyKeyError
 from tomlkit.exceptions import EmptyTableNameError
+from tomlkit.exceptions import IntegerOverflowError
 from tomlkit.exceptions import InternalParserError
 from tomlkit.exceptions import InvalidCharInStringError
 from tomlkit.exceptions import InvalidControlChar
@@ -171,6 +173,21 @@ class Parser:
         Creates a generic "parse error" at the current position.
         """
         return self._src.parse_error(exception, *args, **kwargs)
+
+    def parse_error_at(
+        self,
+        index: int,
+        exception: type[ParseError] = ParseError,
+        *args: Any,
+        **kwargs: Any,
+    ) -> ParseError:
+        """
+        Creates a "parse error" pointing at an arbitrary ``index`` in the source.
+
+        Used where the offending token has already been consumed but the
+        error should still be reported at its start.
+        """
+        return self._src.parse_error_at(index, exception, *args, **kwargs)
 
     def parse(self) -> TOMLDocument:
         body = TOMLDocument(True)
@@ -742,6 +759,11 @@ class Parser:
         return InlineTable(elems, Trivia())
 
     def _parse_number(self, raw: str, trivia: Trivia) -> Item | None:
+        # ``raw`` is the whole token and the parser has already moved past it,
+        # so this is where the literal starts; out-of-range integers report
+        # their position from that index rather than the token's end.
+        literal_start = self._idx - len(raw)
+
         # Leading zeros are not allowed
         sign = ""
         if raw.startswith(("+", "-")):
@@ -787,15 +809,35 @@ class Parser:
         ):
             return None
 
+        # TOML requires every integer to be a signed 64-bit value that can be
+        # represented losslessly (-2**63 .. 2**63-1). Anything outside that
+        # range is an error, not a value to be wrapped or truncated; reject it
+        # here so an overflowing parameter never reaches the parameter store.
         try:
-            return Integer(int(sign + clean, base), trivia, sign + raw)
+            value = int(sign + clean, base)
         except ValueError:
-            pass
+            # A decimal literal made only of digits can only fail here because
+            # it is too long for Python's int-from-string limit -- such a value
+            # is certainly outside the signed 64-bit range, so report it as
+            # the overflow it is (same type and position as the check below),
+            # rather than as a generic "invalid number" at the token's end.
+            if base == 10 and clean.isascii() and clean.isdigit():
+                raise self.parse_error_at(
+                    literal_start, IntegerOverflowError, sign + raw
+                ) from None
+        else:
+            if not fits_int64(value):
+                raise self.parse_error_at(
+                    literal_start, IntegerOverflowError, sign + raw
+                )
+
+            return Integer(value, trivia, sign + raw)
 
         # Only fall back to float for an actual float literal (a fractional
-        # dot, a base-10 exponent, or inf/nan). A decimal integer whose digit
-        # count exceeds Python's int-from-string conversion limit also raises
-        # ValueError above; it must be rejected, not silently coerced to inf.
+        # dot, a base-10 exponent, or inf/nan). Decimal integer literals that
+        # failed to convert are already rejected above (as an overflow, or by
+        # returning None for anything that is not a plain digit run), so they
+        # can never be silently coerced to inf here.
         if base == 10 and ("." in clean or "e" in clean or clean in ("inf", "nan")):
             try:
                 return Float(float(sign + clean), trivia, sign + raw)

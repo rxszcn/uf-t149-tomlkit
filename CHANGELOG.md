@@ -9,6 +9,7 @@
 
 ### Fixed
 
+- Reject integers outside the signed 64-bit range (`-2**63` .. `2**63-1`) that TOML requires to be handled losslessly, instead of silently keeping an arbitrary-precision Python int. Both the parsing path (`parse()`, `value()`) and the construction path (`item()`, `tomlkit.integer()`) now raise `IntegerOverflowError` — an `InvalidNumberError` and hence a `ParseError`/`ValueError` — with `line`/`col` pointing at the start of the literal and the offending text on `.literal`. This covers decimal, hex, octal and binary literals with and without `_` grouping. Also rejects an overlong decimal integer that Python's int-from-string digit limit refuses to convert (previously an `InvalidNumberError` raised at the token's end).
 - Fix `item()` and `dumps()` writing a `datetime` whose UTC offset is not a whole number of minutes (e.g. the historical LMT offsets `zoneinfo` gives, such as `-00:44:30`) as invalid TOML like `1900-01-01T12:00:00Z:30`, which no parser accepts. Such a value is now written as the same instant in UTC; this also covers `DateTime.replace()` and `astimezone()`.
 - Allow `DateTime.astimezone()` to use the local timezone when no timezone argument is supplied, matching `datetime.datetime`.
 - Arithmetic and `replace()` results for `Integer`, `Float`, `String`, `DateTime`, `Date` and `Time` no longer share the original item's `Trivia`, so changing the result's comment or indentation no longer rewrites the item still stored in the document.

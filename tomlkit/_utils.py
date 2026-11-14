@@ -14,6 +14,19 @@ from typing import Any
 from tomlkit._compat import decode
 
 
+# TOML integers are signed 64-bit values: -2^63 to 2^63-1 inclusive. The spec
+# requires rejecting anything that cannot be represented losslessly rather
+# than wrapping it, so every integer we create — parsed from TOML or built by
+# the API — must fall inside this range.
+INT64_MIN = -(2 ** 63)
+INT64_MAX = 2 ** 63 - 1
+
+
+def fits_int64(value: int) -> bool:
+    """Whether ``value`` fits in a signed 64-bit integer."""
+    return INT64_MIN <= value <= INT64_MAX
+
+
 RFC_3339_LOOSE = re.compile(
     "^"
     r"(?P<date>(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2}))?"  # Date

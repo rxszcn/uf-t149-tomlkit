@@ -259,9 +259,11 @@ def test_parser_rejects_overlong_decimal_integer() -> None:
     with pytest.raises(InvalidNumberError):
         parser.parse()
 
-    # the value just under the limit is still a normal integer
-    value = Parser("a = " + "9" * 4300).parse()["a"]
-    assert isinstance(value, Integer)
+    # Just under that limit the value is still an integer, but it is far
+    # outside the signed 64-bit range TOML allows, so it stays an error --
+    # it must never come back as an inf float either.
+    with pytest.raises(InvalidNumberError):
+        Parser("a = " + "9" * 4300).parse()
 
 
 def test_parser_accepts_uppercase_exponent_after_leading_zero() -> None:

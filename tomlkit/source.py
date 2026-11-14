@@ -225,11 +225,28 @@ class Source(str):
         """
         Creates a generic "parse error" at the current position.
         """
-        line, col = self._to_linecol()
+        return self.parse_error_at(self._idx, exception, *args, **kwargs)
+
+    def parse_error_at(
+        self,
+        index: int,
+        exception: type[ParseError] = ParseError,
+        *args: Any,
+        **kwargs: Any,
+    ) -> ParseError:
+        """
+        Creates a "parse error" pointing at an arbitrary ``index`` in the source.
+
+        Used by checks that run after the token has already been consumed but
+        should still report where it started (e.g. an out-of-range integer).
+        """
+        line, col = self._to_linecol(index)
 
         return exception(line, col, *args, **kwargs)
 
-    def _to_linecol(self) -> tuple[int, int]:
+    def _to_linecol(self, index: int | None = None) -> tuple[int, int]:
+        if index is None:
+            index = self._idx
         # `keepends` keeps each line's own terminator inside its length: a "\r\n"
         # break occupies two characters, and assuming a single one made the
         # running offset fall one behind per CRLF line, so an error later in the
@@ -237,8 +254,8 @@ class Source(str):
         lines = self.splitlines(keepends=True)
         cur = 0
         for i, line in enumerate(lines):
-            if cur + len(line) > self.idx:
-                return (i + 1, self.idx - cur)
+            if cur + len(line) > index:
+                return (i + 1, index - cur)
 
             cur += len(line)
 

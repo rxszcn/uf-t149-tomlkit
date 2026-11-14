@@ -14,6 +14,7 @@ from typing import TypeVar
 from tomlkit._utils import parse_rfc3339
 from tomlkit._utils import validate_comment
 from tomlkit.container import Container
+from tomlkit.exceptions import IntegerOverflowError
 from tomlkit.exceptions import UnexpectedCharError
 from tomlkit.items import CUSTOM_ENCODERS
 from tomlkit.items import AoT
@@ -138,11 +139,25 @@ def integer(raw: str | int) -> Integer:
     literal; the original text is then preserved verbatim so grouping
     underscores (e.g. ``"1_000"``) survive ``dumps()``. Anything else
     raises ``ValueError``.
+
+    The value must fit in a signed 64-bit integer (the range TOML requires
+    parsers to accept); a literal outside ``[-2**63, 2**63-1]`` raises
+    :class:`~tomlkit.exceptions.IntegerOverflowError`, which is both a
+    ``ValueError`` and a ``ParseError``.
     """
     if isinstance(raw, str):
         if not _INTEGER_RE.fullmatch(raw):
             raise ValueError(f"Invalid TOML integer: {raw!r}")
-        return Integer(int(raw, 0), Trivia(), raw)
+        try:
+            value = int(raw, 0)
+        except ValueError:
+            # Only reachable for a decimal literal longer than Python's
+            # int-from-string digit limit; such a value is far outside the
+            # signed 64-bit range, so report it as an overflow, not as a
+            # generic conversion failure.
+            raise IntegerOverflowError(1, 0, raw) from None
+
+        return Integer(value, Trivia(), raw)
     return item(int(raw))
 
 

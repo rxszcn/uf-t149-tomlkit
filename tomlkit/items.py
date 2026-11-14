@@ -32,8 +32,10 @@ from tomlkit._types import _CustomInt
 from tomlkit._types import _CustomList
 from tomlkit._utils import CONTROL_CHARS
 from tomlkit._utils import escape_string
+from tomlkit._utils import fits_int64
 from tomlkit._utils import validate_comment
 from tomlkit.exceptions import ConvertError
+from tomlkit.exceptions import IntegerOverflowError
 from tomlkit.exceptions import InvalidStringError
 
 
@@ -688,6 +690,13 @@ class Integer(Item, _CustomInt):
         return int.__new__(cls, value)
 
     def __init__(self, value: int, trivia: Trivia, raw: str) -> None:
+        # TOML integers are signed 64-bit values. Checking here means every
+        # Integer -- parsed, built via item()/integer(), or produced by the
+        # arithmetic wrappers below -- is serializable to TOML that parses
+        # back, instead of emitting a literal the parser now rejects.
+        if not fits_int64(value):
+            raise IntegerOverflowError(1, 0, raw)
+
         super().__init__(trivia)
         self._original = value
         self._raw = raw

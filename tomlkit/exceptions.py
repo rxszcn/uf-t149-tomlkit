@@ -54,6 +54,39 @@ class InvalidNumberError(ParseError):
         super().__init__(line, col, message=message)
 
 
+def _brief(literal: str, limit: int = 40) -> str:
+    # A collector tool can emit a literal thousands of characters long; keep
+    # the message readable while ``IntegerOverflowError.literal`` retains it.
+    if len(literal) <= limit:
+        return literal
+    return f"{literal[:limit]}... ({len(literal)} chars)"
+
+
+class IntegerOverflowError(InvalidNumberError):
+    """
+    An integer literal did not fit in a signed 64-bit integer.
+
+    TOML requires integers outside ``[-2**63, 2**63 - 1]`` to be rejected
+    rather than wrapped or truncated. ``line`` and ``col`` point at the start
+    of the offending integer literal when it comes from parsed TOML; the
+    constructing helpers (``tomlkit.integer()``, ``item()``) have no source
+    text, so they report the start of their single-line input (line 1, col 0).
+    """
+
+    def __init__(self, line: int, col: int, literal: str) -> None:
+        self._literal = literal
+        message = f"Integer {_brief(literal)!r} does not fit in a signed 64-bit integer"
+
+        # Bypass InvalidNumberError's fixed message: this is an invalid number,
+        # but the message has to name the offending literal.
+        ParseError.__init__(self, line, col, message=message)
+
+    @property
+    def literal(self) -> str:
+        """The literal (or value) that was out of range."""
+        return self._literal
+
+
 class InvalidDateTimeError(ParseError):
     """
     A datetime field was improperly specified.
